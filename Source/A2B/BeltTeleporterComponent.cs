@@ -1,5 +1,7 @@
 ﻿#region Usings
 
+using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using Verse;
 
@@ -9,6 +11,11 @@ namespace A2B
 {
     public class BeltTeleporterComponent : BeltComponent
     {
+        private IntVec3 ReceiverPos;
+		private static List<BeltTeleporterComponent> Receivers = new List<BeltTeleporterComponent>();
+		private static List<BeltTeleporterComponent> Teleporters = new List<BeltTeleporterComponent>();
+		private static float basePowerConsumption = 0f;
+		
         public override void PostSpawnSetup()
         {
             base.PostSpawnSetup();
@@ -16,8 +23,52 @@ namespace A2B
             if (!this.IsReceiver())
             {
                 BeltSpeed = 3 * Constants.DefaultBeltSpeed;
-            }
+                Teleporters.Add(this);
+				GetReceiverPos();
+			}
+			else
+			{
+				if (basePowerConsumption == 0f)
+					basePowerConsumption = PowerComponent.powerOutput;
+				Receivers.Add(this);
+				Teleporters.ForEach(e => e.GetReceiverPos());
+			}
         }
+
+		private void GetReceiverPos()
+		{
+			List<BeltTeleporterComponent> ReceiverList = new List<BeltTeleporterComponent>();
+			switch (parent.Rotation.AsInt)
+			{
+				case 0:
+					ReceiverList = Receivers.Where(e => e.parent.Position.x == this.parent.Position.x && e.parent.Rotation.AsInt == 0 
+													&& e.parent.Position.z > this.parent.Position.z).OrderBy(e => e.parent.Position.z).ToList();
+					break;
+				case 1:
+					ReceiverList = Receivers.Where(e => e.parent.Position.z == this.parent.Position.z && e.parent.Rotation.AsInt == 1
+													&& e.parent.Position.x > this.parent.Position.x).OrderBy(e => e.parent.Position.x).ToList();
+					break;
+				case 2:
+					ReceiverList = Receivers.Where(e => e.parent.Position.x == this.parent.Position.x && e.parent.Rotation.AsInt == 2
+													&& e.parent.Position.z < this.parent.Position.z).OrderByDescending(e => e.parent.Position.z).ToList();
+					break;
+				case 3:
+					ReceiverList = Receivers.Where(e => e.parent.Position.z == this.parent.Position.z && e.parent.Rotation.AsInt == 3
+													&& e.parent.Position.x < this.parent.Position.x).OrderByDescending(e => e.parent.Position.x).ToList();
+					break;
+			}
+
+			if (ReceiverList.Count > 0)
+			{
+				ReceiverPos = ReceiverList[0].parent.Position;
+				PowerComponent.powerOutput = Vector3.Distance(ReceiverPos.ToVector3(), parent.Position.ToVector3()) * basePowerConsumption;
+			}
+			else
+			{
+				ReceiverPos = IntVec3.zero;
+				PowerComponent.powerOutput = basePowerConsumption;
+			}
+		}
 
         public override IntVec3 GetDestinationForThing(Thing thing)
         {
@@ -25,9 +76,7 @@ namespace A2B
             {
                 return base.GetDestinationForThing(thing);
             }
-
-            return parent.Position +
-                   new IntVec3(3 * parent.Rotation.FacingSquare.x, parent.Rotation.FacingSquare.y, 3 * parent.Rotation.FacingSquare.z);
+            return ReceiverPos;
         }
 
         public override void PostDraw()
@@ -143,5 +192,12 @@ namespace A2B
 
             return (finDir - finDirNorm);
         }
+        
+        public override void PostDeSpawn()
+		{
+			Receivers.Remove(this);
+			Teleporters.ForEach(e => e.GetReceiverPos());
+			base.PostDeSpawn();
+		}
     }
 }
